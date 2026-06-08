@@ -87,3 +87,90 @@ app.post('/transfer', (req, res) => {
     res.json({ message: 'Transfer successful' });
   });
 });
+
+app.post('/loan', (req, res) => {
+  const { userId, amount } = req.body;
+
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ message: 'Invalid loan amount' });
+  }
+
+  const sql = `
+    UPDATE accounts
+    SET balance = balance + ?
+    WHERE user_id = ?
+  `;
+
+  db.query(sql, [amount, userId], (err, result) => {
+    if (err) return res.status(500).json(err);
+
+    res.json({
+      message: 'Loan approved',
+      added: amount
+    });
+  });
+});
+
+
+app.delete('/close-account', (req, res) => {
+  const { userId, username, pin } = req.body;
+
+  const sql = `
+    DELETE FROM users
+    WHERE id = ? AND username = ? AND pin = ?
+  `;
+
+  db.query(sql, [userId, username, pin], (err, result) => {
+    if (err) return res.status(500).json(err);
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    res.json({ message: 'Account deleted' });
+  });
+});
+
+app.post('/transfer', (req, res) => {
+  const { fromId, toUsername, amount } = req.body;
+
+  const findUser = "SELECT * FROM users WHERE username = ?";
+
+  db.query(findUser, [toUsername], (err, result) => {
+    if (err) return res.status(500).json(err);
+
+    if (result.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const toUser = result[0];
+
+    // 1. update balances
+    db.query("UPDATE accounts SET balance = balance - ? WHERE user_id = ?", [amount, fromId]);
+    db.query("UPDATE accounts SET balance = balance + ? WHERE user_id = ?", [amount, toUser.id]);
+
+    // 2. SAVE TRANSACTION (dynamic)
+    db.query(
+      `INSERT INTO transactions (from_account, to_account, amount, type)
+       VALUES (?, ?, ?, 'transfer')`,
+      [fromId, toUser.id, amount]
+    );
+
+    res.json({ message: "Transfer successful" });
+  });
+});
+
+app.get('/transactions/:userId', (req, res) => {
+  const sql = `
+    SELECT *
+    FROM transactions
+    WHERE from_account = ? OR to_account = ?
+    ORDER BY created_at DESC
+  `;
+
+  db.query(sql, [req.params.userId, req.params.userId], (err, result) => {
+    if (err) return res.status(500).json(err);
+
+    res.json(result);
+  });
+});
